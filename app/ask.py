@@ -1,8 +1,9 @@
-"""第1回: 素のLLMに1回だけ質問するスクリプト。
+"""第1回: 素のLLMに質問するスクリプト。
 
 使い方:
     uv run python -m app.ask "LoRAとは何ですか？"
     uv run python -m app.ask            # 質問を省略すると、講座に固有の質問をする
+    uv run python -m app.ask --chat     # 会話履歴を保って続けて質問する
 
 ツールも会話履歴も持たない「素の」呼び出し。
 講座に固有のことを聞くと、「分からない」と答えるか、一般論でもっともらしく答える
@@ -35,15 +36,47 @@ def ask(question: str) -> str:
     return response.text
 
 
+def chat(initial_question: str | None = None) -> None:
+    client = genai.Client(api_key=get_api_key())
+    session = client.chats.create(model=MODEL)
+    question = initial_question
+
+    print("会話を開始します。終了するには exit または quit を入力してください。")
+    while True:
+        if question is None:
+            try:
+                question = input("質問> ")
+            except EOFError:
+                break
+
+        if question.strip().lower() in {"exit", "quit"}:
+            break
+        if question.strip():
+            response = session.send_message(question)
+            usage = response.usage_metadata
+            if usage is not None:
+                print(
+                    f"[トークン] 入力: {usage.prompt_token_count}, "
+                    f"出力: {usage.candidates_token_count}"
+                )
+            print(response.text)
+        question = None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="素のLLMに質問する")
-    parser.add_argument("question", nargs="?", default=DEFAULT_QUESTION)
+    parser.add_argument("question", nargs="?")
+    parser.add_argument("--chat", action="store_true", help="会話履歴を保って続けて質問する")
     args = parser.parse_args()
 
     print(f"[model] {MODEL}")
-    print(f"[質問] {args.question}\n")
     try:
-        print(ask(args.question))
+        if args.chat:
+            chat(args.question)
+        else:
+            question = args.question or DEFAULT_QUESTION
+            print(f"[質問] {question}\n")
+            print(ask(question))
     except errors.APIError as e:
         print(api_error_message(e.code, e.message))
         raise SystemExit(1)
